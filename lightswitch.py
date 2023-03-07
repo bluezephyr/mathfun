@@ -34,10 +34,13 @@ class Building:
             self._draw_window(window_nbr)
         self._screen.refresh()
 
-    def toggle_window(self, window_nbr):
+    def clear(self):
+        self._windows = {k + 1: False for k in range(self._nof_windows)}
+
+    def set_window_state(self, window_nbr, state):
         if window_nbr < 1 or window_nbr > self._nof_windows:
             return
-        self._windows[window_nbr] = not self._windows[window_nbr]
+        self._windows[window_nbr] = state
 
     def height(self):
         floors = self._nof_windows // WINDOWS_PER_FLOOR + (
@@ -79,9 +82,72 @@ class Building:
         rectangle(self._screen, y, x, y + WINDOW_HEIGHT, x + WINDOW_WIDTH)
         x_pad = 1 if number < 10 else 0
         if self._windows[number]:
-            self._screen.addstr(y + 1, x + 1 + x_pad, str(number), YELLOW_TEXT | curses.A_REVERSE)
+            self._screen.addstr(
+                y + 1, x + 1 + x_pad, str(number), YELLOW_TEXT | curses.A_REVERSE
+            )
         else:
             self._screen.addstr(y + 1, x + 1 + x_pad, str(number), YELLOW_TEXT)
+
+
+class TextArea:
+    def __init__(self, screen, y):
+        self._y = y
+        self._screen = screen
+        self.switch = 0
+        self.input = 0
+        self.lit_windows = []
+
+    def draw(self):
+        self._screen.addstr(
+            self._y + 1, 0, f"[{self.switch:3}] Enter switch number: {self.input}"
+        )
+        self._screen.addstr(self._y + 2, 0, f"{self.lit_windows}")
+        self._screen.addstr(self._y + 3, 0, "Press 'C' to clear or 'Q' to quit")
+
+
+class Switches:
+    def __init__(self, nof_switches):
+        self.switches = {k + 1: False for k in range(nof_switches)}
+
+    def apply(self, switch):
+        for i in range(1, switch + 1):
+            self.switches[i] = not self.switches[i]
+            # self.switches[i] = True
+
+
+class Selector:
+    def __init__(self, max_selection):
+        self.input = ""
+        self._value = 0
+        self._value_updated = False
+        self._max_selection = max_selection
+
+    def _set(self, value):
+        if value == self._value:
+            return
+        if value > self._max_selection:
+            self._value = 0
+        elif value < 0:
+            self._value = self._max_selection
+        else:
+            self._value = value
+        self._value_updated = True
+
+    def get(self, key):
+        self._value_updated = False
+        if key == "KEY_LEFT":
+            self._set(self._value - 1)
+        elif key == "KEY_RIGHT":
+            self._set(self._value + 1)
+        elif key in "0123456789":
+            self.input += key
+        elif key == "KEY_BACKSPACE":
+            self.input = self.input[:-1]
+        elif key == "\n":
+            if self.input:
+                self._set(int(self.input))
+                self.input = ""
+        return self._value if self._value_updated else None
 
 
 def main(stdscr):
@@ -90,34 +156,40 @@ def main(stdscr):
     stdscr.clear()
 
     building = Building(stdscr, 10, 100)
-    building.draw(0, 0)
-    window = 0
-    stdscr.addstr(building.height() + 1, 0, f"Current window number: {window}")
+    text_area = TextArea(stdscr, building.height())
+    switches = Switches(100)
+    selector = Selector(100)
     stdscr.refresh()
 
-    delta = 0
     while True:
-        key = stdscr.getkey()
-        if key == "KEY_LEFT":
-            delta = -1
-        elif key == "KEY_RIGHT":
-            delta = 1
-        elif key == "q":
-            break
-        else:
-            delta = 0
-        window += delta
-        if window < 1:
-            window = 1
-        if window > 100:
-            window = 100
-
-        building.toggle_window(window)
         stdscr.clear()
         building.draw(0, 0)
-        stdscr.addstr(building.height() + 1, 0, f"Current window number: {window}")
-        stdscr.addstr(building.height() + 2, 0, "Enter window number: ")
+        text_area.draw()
         stdscr.refresh()
+
+        try:
+            key = stdscr.getkey()
+        except:
+            key = ""
+
+        if key in "Qq":
+            break
+        elif key in "Cc":
+            building.clear()
+        else:
+            selection = selector.get(key)
+            if selection:
+                switches.apply(selection)
+                text_area.switch = selection
+                for window, state in switches.switches.items():
+                    building.set_window_state(window, state)
+
+        text_area.input = selector.input
+        stdscr.addstr(
+            building.height() + 2,
+            0,
+            f"{[k for k, v in switches.switches.items() if v]}",
+        )
 
 
 if __name__ == "__main__":
