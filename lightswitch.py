@@ -2,7 +2,7 @@
 import curses
 from curses.textpad import rectangle
 
-
+NOF_WINDOWS = 100
 WINDOWS_PER_FLOOR = 10
 WINDOW_X_SPACE = 1
 WINDOW_Y_SPACE = 1
@@ -93,52 +93,70 @@ class TextArea:
     def __init__(self, screen, y):
         self._y = y
         self._screen = screen
-        self.switch = 0
+        self.clear()
+
+    def clear(self):
         self.input = 0
-        self.lit_windows = []
+        self.switch = 0
+        self.last_changes = []
 
     def draw(self):
         self._screen.addstr(
             self._y + 1, 0, f"[{self.switch:3}] Enter switch number: {self.input}"
         )
-        self._screen.addstr(self._y + 2, 0, f"{self.lit_windows}")
-        self._screen.addstr(self._y + 3, 0, "Press 'C' to clear or 'Q' to quit")
+        self._screen.addstr(self._y + 2, 0, f"Last changes: {self.last_changes}")
+        self._screen.addstr(self._y + 4, 0, "Press 'C' to clear or 'Q' to quit")
 
 
 class Switches:
     def __init__(self, nof_switches):
-        self.switches = {k + 1: False for k in range(nof_switches)}
+        self._nof_switches = nof_switches
+        self.switches = {}
+        self.clear()
+
+    def clear(self):
+        self.switches = {k + 1: False for k in range(self._nof_switches)}
 
     def apply(self, switch):
-        for i in range(1, switch + 1):
-            self.switches[i] = not self.switches[i]
-            # self.switches[i] = True
+        if switch < 1 or switch > self._nof_switches:
+            return
+        changes = [k for k in self.switches if k % switch == 0]
+        for switch in changes:
+            self.toggle(switch)
+        return changes
+
+    def toggle(self, switch):
+        if switch > self._nof_switches:
+            return
+        self.switches[switch] = not self.switches[switch]
 
 
 class Selector:
     def __init__(self, max_selection):
         self.input = ""
+        self._max_selection = max_selection
+        self.clear()
+
+    def clear(self):
         self._value = 0
         self._value_updated = False
-        self._max_selection = max_selection
 
     def _set(self, value):
-        if value == self._value:
-            return
         if value > self._max_selection:
             self._value = 0
         elif value < 0:
             self._value = self._max_selection
         else:
             self._value = value
-        self._value_updated = True
 
     def get(self, key):
-        self._value_updated = False
+        value_updated = False
         if key == "KEY_LEFT":
             self._set(self._value - 1)
+            value_updated = True
         elif key == "KEY_RIGHT":
             self._set(self._value + 1)
+            value_updated = True
         elif key in "0123456789":
             self.input += key
         elif key == "KEY_BACKSPACE":
@@ -147,7 +165,8 @@ class Selector:
             if self.input:
                 self._set(int(self.input))
                 self.input = ""
-        return self._value if self._value_updated else None
+                value_updated = True
+        return self._value if value_updated else None
 
 
 def main(stdscr):
@@ -155,10 +174,10 @@ def main(stdscr):
     curses.curs_set(0)
     stdscr.clear()
 
-    building = Building(stdscr, 10, 100)
+    building = Building(stdscr, 10, NOF_WINDOWS)
     text_area = TextArea(stdscr, building.height())
-    switches = Switches(100)
-    selector = Selector(100)
+    switches = Switches(NOF_WINDOWS)
+    selector = Selector(NOF_WINDOWS)
     stdscr.refresh()
 
     while True:
@@ -176,11 +195,15 @@ def main(stdscr):
             break
         elif key in "Cc":
             building.clear()
+            switches.clear()
+            text_area.clear()
+            selector.clear()
         else:
             selection = selector.get(key)
-            if selection:
-                switches.apply(selection)
+            if selection is not None:
                 text_area.switch = selection
+                text_area.last_changes = switches.apply(selection)
+                # switches.toggle(selection)
                 for window, state in switches.switches.items():
                     building.set_window_state(window, state)
 
